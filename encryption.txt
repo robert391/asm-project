@@ -1,0 +1,205 @@
+section .text
+  global _start
+
+_start:
+
+  call createopenfile
+  mov [fd], eax
+
+  ; write the text saying plain text
+  push plainword
+  push plainwordlen
+  call appendtext
+  pop eax
+  pop eax
+
+  ; write plain text
+  push plaintext
+  push size
+  call appendtext
+  pop eax
+  pop eax
+
+  ; write text saying key
+  push keyword
+  push keywordlen
+  call appendtext
+  pop eax
+  pop eax
+
+  ; write key
+  push key
+  push size
+  call appendtext
+  pop eax
+  pop eax
+  
+  call encrypt ;perform encryption
+
+  ; print the text that says encrypted text
+  push encryptedtext
+  push encryptedtextlen
+  call appendtext
+  pop eax
+  pop eax
+
+  call  convertencrypttohex; convert the encrypted text to its hex form
+
+  ; print the encrypted text
+  push encryptedinhex
+  push size*2
+  call appendtext
+  pop eax
+  pop eax
+
+  call moveencryptedtoplain ; prepare for decryption
+  call encrypt ;this will actually decrypt, because the encrypted text is encrypted again
+
+  ; print the text saying decrypted text
+  push decryptedtext
+  push decryptedtextlen
+  call appendtext
+  pop eax
+  pop eax
+
+  ;write decrypted text
+  push encrypted
+  push size
+  call appendtext
+  pop eax
+  pop eax
+  
+  call closefile
+
+  jmp exit
+
+createopenfile:
+  mov eax, 8 ;create file
+  mov ebx, filename
+  mov ecx, 07110
+  int 0x80
+
+  mov eax, 5 ;open file
+  mov ebx, filename
+  mov ecx, 2; read and write
+  mov edx, 0
+  int 0x80
+
+  ret
+
+;
+; procedure to encrypt
+; the [plaintext] w/ length [size] gets encrypted with [key] and results is stored in [encrypted]
+;
+encrypt:
+  mov ecx, 0 ; this register holds the counter
+loop1:
+  cmp ecx, size
+  jge endloop1
+  mov al, [plaintext+ecx]
+  mov bl, [key+ecx]
+  xor al, bl
+  mov [encrypted+ecx], al
+  inc ecx
+  jmp loop1
+endloop1:
+  ret
+
+; function to append text
+; stack input is pointer to string and lenghth of string
+appendtext:
+  push ebp
+  mov ebp, esp
+
+  mov eax, 19 ;seek end of file
+  mov ebx, [fd]
+  mov ecx, 0
+  mov edx, 2
+  int 0x80
+
+  mov eax, 4 ;write to file
+  mov ebx, [fd]
+  mov ecx, DWORD[ebp+12]
+  mov edx, DWORD[ebp+8]
+  int 0x80
+
+  leave
+  ret
+
+convertencrypttohex:
+  mov ecx, 0
+  mov eax, 0
+loop2:
+  cmp ecx, size
+  jge cnt2
+  mov al, [encrypted+ecx]
+  mov ebx, 16
+    jge cnt2
+  mov al, [encrypted+ecx]
+  mov ebx, 16
+  mov edx, 0
+  div ebx
+  cmp eax, 9
+  jg let
+
+  add al, '0' ; process the hiher part base 16, if digit
+  mov [encryptedinhex+(ecx*2)], al
+  jmp cnt
+let: ;processes the higher base 16, if it's letter (is greater than 9)
+  add al, 'A'
+  sub al, 10
+  mov [encryptedinhex+(ecx*2)], al
+cnt: ;processes the lower base 16 part by converting to hex, if digit
+  cmp edx, 9
+  jg let2
+  add dl, '0'
+  mov [encryptedinhex+(ecx*2)+1], dl
+  jmp endloop
+let2: ;if the lower base 16 part, if hex letter
+  add dl, 'A'
+  sub dl, 10
+  mov[encryptedinhex+(ecx*2)+1], dl
+endloop:
+  inc ecx
+  jmp loop2
+cnt2:
+  ret
+
+;
+; moves the encrypted text to the plain text in preparation for decryption
+moveencryptedtoplain:
+  mov ecx, size ;ecx is loop counter
+loop3:
+  mov al, [encrypted+ecx-1]
+  mov [plaintext+ecx-1], al
+  loop loop3
+  ret
+
+closefile:
+  mov eax, 6
+  mov ebx, [fd]
+  int 0x80
+  ret
+
+exit:
+  mov eax, 1
+  int 0x80
+
+section .data
+  plainword db 'Plain text: '
+  plainwordlen equ $ - plainword
+  plaintext db 'hello'
+  size equ $ - plaintext
+  keyword db 10, 'Key: '
+  keywordlen equ $ - keyword
+  encryptedtext db 10, 'Encrypted text: '
+  encryptedtextlen equ $ - encryptedtext
+  decryptedtext db 10, 'Decrypted text: '
+  decryptedtextlen equ $ - decryptedtext
+  key db 'march'
+  filename db 'output.txt', 0
+
+segment .bss
+  encrypted resb 5 ;where the encrypted text gets stored
+  encryptedinhex resb 10 ; size in hex should be twice its length
+  fd resd 1
